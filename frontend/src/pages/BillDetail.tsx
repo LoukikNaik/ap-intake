@@ -5,7 +5,7 @@ import type { Bill, GLAccount, LineItem } from "@/types";
 import { Button, Card, StatusBadge, ConfidenceBar } from "@/components/ui";
 import { money } from "@/lib";
 import { clerkId } from "@/clerk";
-import { ArrowLeft, AlertTriangle, Check, X, Save, Lock, RotateCw, Info } from "lucide-react";
+import { ArrowLeft, AlertTriangle, Check, X, Save, Lock, RotateCw, RotateCcw, Info } from "lucide-react";
 
 interface Header {
   vendor: string;
@@ -125,6 +125,11 @@ export default function BillDetail() {
     await api.rejectBill(bill.id, clerk);
     nav("/");
   };
+  const reopen = async () => {
+    await api.reopenBill(bill.id, clerk);
+    const b = await api.getBill(bill.id);
+    hydrate(b);
+  };
 
   const lineSum = lines.reduce((s, l) => s + (Number(l.amount) || 0), 0);
   const reconciles =
@@ -171,12 +176,20 @@ export default function BillDetail() {
               <Save size={15} /> {saving ? "Saving…" : "Save edits"}
             </Button>
           )}
-          <Button variant="destructive" onClick={reject} disabled={readOnly}>
-            <X size={15} /> Reject
-          </Button>
-          <Button variant="success" onClick={approve} disabled={readOnly}>
-            <Check size={15} /> Approve
-          </Button>
+          {bill.status === "approved" || bill.status === "rejected" ? (
+            <Button variant="outline" onClick={reopen} disabled={readOnly}>
+              <RotateCcw size={15} /> Reopen
+            </Button>
+          ) : (
+            <>
+              <Button variant="destructive" onClick={reject} disabled={readOnly}>
+                <X size={15} /> Reject
+              </Button>
+              <Button variant="success" onClick={approve} disabled={readOnly}>
+                <Check size={15} /> Approve
+              </Button>
+            </>
+          )}
         </div>
       </div>
 
@@ -422,7 +435,9 @@ export default function BillDetail() {
                         onChange={(e) =>
                           setLine(l.id, {
                             gl_code: e.target.value || null,
-                            needs_review: e.target.value ? false : l.needs_review,
+                            // Clearing the code sends the line back to "needs review";
+                            // picking a code clears the flag.
+                            needs_review: e.target.value ? false : true,
                           })
                         }
                         className={`w-full rounded border px-2 py-1 text-sm ${

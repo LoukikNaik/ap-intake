@@ -268,8 +268,13 @@ def edit_bill(bill_id: int, edit: BillEdit, db: Session = Depends(get_db)):
     if edit.reviewed_by:
         _require_lease(bill, edit.reviewed_by)
 
-    def record(field: str, old, new, line_item_id: int | None = None):
-        if new is not None and str(new) != str(old):
+    # Apply a field that was EXPLICITLY provided in the request (even if its value is null —
+    # e.g. clearing a GL code to send a line back to "needs review"). We use Pydantic's
+    # model_fields_set to distinguish "field omitted" from "field set to null", which a plain
+    # `is not None` check cannot. Feedback is logged whenever the value actually changes.
+    def apply(obj, field, new, line_item_id: int | None = None):
+        old = getattr(obj, field)
+        if str(old) != str(new):
             db.add(
                 Feedback(
                     bill_id=bill.id,
@@ -280,29 +285,28 @@ def edit_bill(bill_id: int, edit: BillEdit, db: Session = Depends(get_db)):
                     created_by=edit.reviewed_by,
                 )
             )
+        setattr(obj, field, new)
 
+    hdr_set = edit.model_fields_set
     for field in (
         "vendor", "invoice_number", "invoice_date", "due_date", "tax", "other_charges",
         "total", "is_credit_memo",
     ):
-        new = getattr(edit, field)
-        if new is not None:
-            record(field, getattr(bill, field), new)
-            setattr(bill, field, new)
+        if field in hdr_set:
+            apply(bill, field, getattr(edit, field))
 
     for le in edit.line_items:
         li = db.get(LineItem, le.id)
         if not li or li.bill_id != bill.id:
             continue
+        le_set = le.model_fields_set
         for field in ("gl_code", "description", "quantity", "unit_price", "amount", "needs_review"):
-            new = getattr(le, field)
-            if new is not None:
-                record(field, getattr(li, field), new, line_item_id=li.id)
-                setattr(li, field, new)
+            if field in le_set:
+                apply(li, field, getattr(le, field), line_item_id=li.id)
 
-    # If the vendor or invoice number changed, re-evaluate duplicate status so a
+    # If the vendor or invoice number was provided, re-evaluate duplicate status so a
     # corrected false-positive clears (and a new collision re-flags).
-    if edit.vendor is not None or edit.invoice_number is not None:
+    if "vendor" in hdr_set or "invoice_number" in hdr_set:
         _recheck_duplicate(db, bill)
 
     db.commit()
@@ -337,6 +341,31 @@ def reject_bill(bill_id: int, reviewed_by: str = "clerk", db: Session = Depends(
     bill.reviewed_at = datetime.now(timezone.utc)
     bill.locked_by = None
     bill.locked_at = None
+    db.commit()
+    db.refresh(bill)
+    return _bill_out(bill)
+
+
+@app.post("/bills/{bill_id}/reopen", response_model=BillOut)
+def reopen_bill(bill_id: int, reviewed_by: str = "clerk", db: Session = Depends(get_db)):
+    """Undo an approve/reject — send the bill back into the review queue.
+
+    Status is recomputed from its current flags/duplicate state, so a clean bill returns to
+    'ready_to_approve' and a flagged one to 'needs_review'.
+    """
+    bill = db.get(Bill, bill_id)
+    if not bill:
+        raise HTTPException(404, "Not found")
+    _require_lease(bill, reviewed_by)
+    flags = json.loads(bill.review_flags) if bill.review_flags else []
+    if bill.is_duplicate:
+        bill.status = "duplicate"
+    elif flags:
+        bill.status = "needs_review"
+    else:
+        bill.status = "ready_to_approve"
+    bill.reviewed_by = None
+    bill.reviewed_at = None
     db.commit()
     db.refresh(bill)
     return _bill_out(bill)
