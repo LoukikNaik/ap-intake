@@ -16,6 +16,12 @@ The split:
 > browsers block an HTTPS page from calling an `http://` API (mixed content). So the backend
 > must be reachable over HTTPS — hence the Nginx TLS proxy (or a tunnel that provides TLS).
 
+> **Why not a Cloudflare Worker (like the portfolio's API)?** The portfolio backend is a
+> lightweight serverless Worker (JS + D1 + KV). This backend is **FastAPI + Postgres + the
+> OpenAI Agents SDK** — Python, stateful, with multi-second agent runs — which doesn't fit the
+> Worker model. So the frontend deploys exactly like the portfolio, but the backend runs on
+> your machine behind Nginx (or a tunnel).
+
 ---
 
 ## 1. Push the repo
@@ -26,16 +32,23 @@ git push -u origin main
 
 ## 2. Frontend → GitHub Pages
 
-1. Repo **Settings → Pages → Build and deployment → Source: GitHub Actions**.
-2. Repo **Settings → Secrets and variables → Actions → Variables**, add:
-   - `VITE_API_URL` = your backend's public HTTPS URL, e.g. `https://api.yourdomain.com`
-   - `VITE_BASE` = `"/<repo-name>/"` for a project site (`user.github.io/<repo>/`), or `"/"`
-     for a user/org site (`user.github.io`).
-3. Push to `main` (or run the workflow manually). The **Deploy frontend** workflow builds and
-   publishes. The app appears at `https://<user>.github.io/<repo>/`.
+This mirrors the proven `loukik.dev` portfolio setup: build → push to the `gh-pages` branch
+(via `JamesIves/github-pages-deploy-action`), with a `404.html` SPA fallback and an optional
+custom-domain `CNAME`.
 
-Routing note: the UI uses a **hash router** (`/#/bills/1`), so deep links and refreshes work on
-Pages without any SPA-fallback server config.
+1. Repo **Settings → Secrets and variables → Actions → Variables**, add:
+   - `VITE_API_URL` = backend's public HTTPS URL, e.g. `https://ap-api.loukik.dev`
+   - `VITE_BASE` = `"/"` if using a custom domain, or `"/<repo-name>/"` for a project site.
+   - `VITE_CNAME` *(optional)* = custom domain, e.g. `ap.loukik.dev`. Leave unset to use
+     `user.github.io/<repo>/`.
+2. Push to `main` (or run the workflow manually). The workflow builds, copies `index.html` →
+   `404.html`, writes `CNAME` if set, and deploys to the `gh-pages` branch.
+3. Repo **Settings → Pages → Source: Deploy from a branch → `gh-pages` / root**. (If using a
+   custom domain, also set it under Settings → Pages and add the DNS record per GitHub's docs.)
+
+Routing note: the UI uses **clean URLs (BrowserRouter)**. Deep links and refreshes work on
+Pages because the workflow copies `index.html` to `404.html` — Pages serves that for unknown
+paths, the SPA boots, and the router takes over. (Same trick as the portfolio; no hash router.)
 
 ## 3. Backend → your machine, exposed over HTTPS
 
