@@ -32,19 +32,15 @@ jobs:
         working-directory: frontend
         env:
           CI: false
-          # Set as repo Variables (Settings → Secrets and variables → Actions → Variables):
-          #   VITE_API_URL = public HTTPS URL of your backend (e.g. https://ap-api.loukik.dev)
-          #   VITE_BASE    = "/" with a custom domain, or "/<repo>/" for a project site
-          #   VITE_CNAME   = (optional) custom domain to serve from, e.g. ap.loukik.dev
-          VITE_API_URL: ${{ vars.VITE_API_URL }}
-          VITE_BASE: ${{ vars.VITE_BASE }}
+          # Defaults target ap.loukik.dev; override via repo Variables if needed.
+          VITE_API_URL: ${{ vars.VITE_API_URL || 'https://ap-api.loukik.dev' }}
+          VITE_BASE: ${{ vars.VITE_BASE || '/' }}
 
       - name: SPA fallback (clean URLs work on direct load / refresh)
         run: cp frontend/dist/index.html frontend/dist/404.html
 
-      - name: Custom domain (optional)
-        if: ${{ vars.VITE_CNAME != '' }}
-        run: echo "${{ vars.VITE_CNAME }}" > frontend/dist/CNAME
+      - name: Custom domain
+        run: echo "${{ vars.VITE_CNAME || 'ap.loukik.dev' }}" > frontend/dist/CNAME
 
       - name: Deploy to gh-pages
         uses: JamesIves/github-pages-deploy-action@v4

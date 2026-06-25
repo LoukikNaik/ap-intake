@@ -2,10 +2,14 @@ import type { AgentConfig, Bill, GLAccount, Issue } from "./types";
 
 const BASE = (import.meta as any).env?.VITE_API_URL || "http://localhost:8000";
 
+// Sent on every request so ngrok's free-tier browser-warning interstitial is skipped
+// (otherwise it returns HTML and breaks JSON parsing). Harmless when not behind ngrok.
+const COMMON_HEADERS = { "ngrok-skip-browser-warning": "true" };
+
 async function req<T>(path: string, opts?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
-    headers: { "Content-Type": "application/json" },
     ...opts,
+    headers: { "Content-Type": "application/json", ...COMMON_HEADERS, ...(opts?.headers || {}) },
   });
   if (!res.ok) throw new Error(`${res.status} ${await res.text()}`);
   if (res.status === 204) return undefined as T;
@@ -18,7 +22,11 @@ export const api = {
   uploadInvoice: async (file: File): Promise<{ document_id: number; status: string }> => {
     const fd = new FormData();
     fd.append("file", file);
-    const res = await fetch(`${BASE}/invoices?source=ui`, { method: "POST", body: fd });
+    const res = await fetch(`${BASE}/invoices?source=ui`, {
+      method: "POST",
+      body: fd,
+      headers: { ...COMMON_HEADERS },
+    });
     if (!res.ok) throw new Error(await res.text());
     return res.json();
   },
@@ -38,7 +46,10 @@ export const api = {
   claimBill: (id: number, clerk: string) =>
     req<Bill>(`/bills/${id}/claim?clerk=${encodeURIComponent(clerk)}`, { method: "POST" }),
   releaseBill: (id: number, clerk: string) =>
-    fetch(`${BASE}/bills/${id}/release?clerk=${encodeURIComponent(clerk)}`, { method: "POST" }),
+    fetch(`${BASE}/bills/${id}/release?clerk=${encodeURIComponent(clerk)}`, {
+      method: "POST",
+      headers: { ...COMMON_HEADERS },
+    }),
 
   listIssues: () => req<Issue[]>(`/issues`),
   resolveIssue: (id: number) => req<Issue>(`/issues/${id}/resolve`, { method: "POST" }),
